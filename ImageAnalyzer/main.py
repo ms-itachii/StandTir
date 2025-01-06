@@ -9,7 +9,7 @@ if not camera.isOpened():
     exit()
 
 print("Press 'c' to capture an image or 'q' to quit.")
-c
+
 while True:
     # Capture frame-by-frame
     ret, frame = camera.read()
