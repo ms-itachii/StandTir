@@ -1,114 +1,147 @@
 import cv2
 import numpy as np
+import os
 
-def find_zombie_percentage_in_center(ref_img_path, scene_img_path):
+
+def find_zombie_percentage_in_center(
+    ref_img_path,
+    scene_img_path,
+    ratio_thresh=0.6,  # Seuil du ratio test (plus haut = plus permissif)
+    resize_factor=None,  # Facteur de redimensionnement (ex: 0.5 pour réduire à 50%)
+    detector_type="SIFT",  # Type de détecteur ("ORB", "SIFT", "AKAZE")
+    nfeatures=100,  # Nombre de points d'intérêt maximum (utilisé pour ORB et autres détecteurs)
+    log_dir="logs"  # Répertoire où sauvegarder les images des étapes
+):
     """
     Calcule le pourcentage d'occupation du "zombie" (défini par l'image de référence)
-    dans la zone centrale de l'image capturée (scene_img_path).
-
-    :param ref_img_path: Chemin vers l'image de référence (ex : 'zombie_reference.png')
-    :param scene_img_path: Chemin vers l'image capturée (ex : 'camera_shot.jpg')
-    :return: Pourcentage (float) d'occupation du zombie dans la zone centrale.
+    dans la zone centrale de l'image capturée (scene_img_path), avec des logs pour chaque étape.
     """
 
-    # 1) Chargement en niveaux de gris (plus simple pour ORB)
+    # Créer un sous-dossier pour cette image dans le dossier de logs
+    scene_name = os.path.splitext(os.path.basename(scene_img_path))[0]
+    scene_log_dir = os.path.join(log_dir, scene_name)
+    os.makedirs(scene_log_dir, exist_ok=True)
+
+    # Charger les images en niveaux de gris
     ref_img = cv2.imread(ref_img_path, cv2.IMREAD_GRAYSCALE)
     scene_img = cv2.imread(scene_img_path, cv2.IMREAD_GRAYSCALE)
 
     if ref_img is None or scene_img is None:
         raise FileNotFoundError("Impossible de charger l'une des images.")
 
-    # 2) Création de l'objet ORB (500 features max, à ajuster selon vos besoins)
-    orb = cv2.ORB_create(nfeatures=500)
+    # Redimensionner les images si un facteur est spécifié
+    if resize_factor is not None:
+        ref_img = cv2.resize(ref_img, None, fx=resize_factor, fy=resize_factor, interpolation=cv2.INTER_LINEAR)
+        scene_img = cv2.resize(scene_img, None, fx=resize_factor, fy=resize_factor, interpolation=cv2.INTER_LINEAR)
 
-    # 3) Détection et description des keypoints
-    kp1, des1 = orb.detectAndCompute(ref_img, None)
-    kp2, des2 = orb.detectAndCompute(scene_img, None)
+    # Initialiser le détecteur de points clés
+    if detector_type == "ORB":
+        detector = cv2.ORB_create(nfeatures=nfeatures)
+        norm_type = cv2.NORM_HAMMING  # ORB utilise NORM_HAMMING
+    elif detector_type == "SIFT":
+        detector = cv2.SIFT_create(nfeatures=nfeatures)
+        norm_type = cv2.NORM_L2  # SIFT utilise NORM_L2
+    elif detector_type == "AKAZE":
+        detector = cv2.AKAZE_create()
+        norm_type = cv2.NORM_L2  # AKAZE utilise aussi NORM_L2
+    else:
+        raise ValueError(f"Type de détecteur '{detector_type}' non reconnu.")
 
-    if des1 is None or des2 is None:
-        print("Pas de descripteurs détectés dans l'une des images.")
+    # Détecter les points clés et calculer les descripteurs
+    kp1, des1 = detector.detectAndCompute(ref_img, None)
+    kp2, des2 = detector.detectAndCompute(scene_img, None)
+
+    # Sauvegarder les points clés détectés
+    img_kp1 = cv2.drawKeypoints(ref_img, kp1, None, color=(0, 255, 0))
+    img_kp2 = cv2.drawKeypoints(scene_img, kp2, None, color=(0, 255, 0))
+    cv2.imwrite(os.path.join(scene_log_dir, "ref_keypoints.jpg"), img_kp1)
+    cv2.imwrite(os.path.join(scene_log_dir, "scene_keypoints.jpg"), img_kp2)
+
+    # Vérifier que les descripteurs ne sont pas None ou vides
+    if des1 is None or des2 is None or len(des1) == 0 or len(des2) == 0:
         return 0.0
 
-    # 4) Matching avec un BFMatcher pour descripteurs de type ORB (Hamming)
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
-    # On utilise knnMatch pour réaliser le ratio test (Lowe)
+    # Convertir en float32 si nécessaire
+    if norm_type == cv2.NORM_L2:  # SIFT et AKAZE nécessitent float32
+        des1 = np.asarray(des1, dtype=np.float32)
+        des2 = np.asarray(des2, dtype=np.float32)
+
+    # Initialiser le matcher avec le bon type
+    bf = cv2.BFMatcher(norm_type, crossCheck=False)
+
+    # Faire le matching des descripteurs
     matches_knn = bf.knnMatch(des1, des2, k=2)
 
-    good_matches = []
-    ratio_thresh = 0.75  # ratio test threshold (classique ~ 0.7-0.8)
-    for m,n in matches_knn:
-        if m.distance < ratio_thresh * n.distance:
-            good_matches.append(m)
+    # Filtrer les correspondances avec le ratio test
+    good_matches = [m for m, n in matches_knn if m.distance < ratio_thresh * n.distance]
 
-    # 5) On a besoin d'au moins 4 bons matches pour estimer une homographie
+    # Sauvegarder les correspondances avant filtrage
+    matches_img = cv2.drawMatches(ref_img, kp1, scene_img, kp2, good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+    cv2.imwrite(os.path.join(scene_log_dir, "matches.jpg"), matches_img)
+
     if len(good_matches) < 4:
-        print("Pas assez de bons matches pour estimer une homographie.")
         return 0.0
 
-    # 6) Construction des ensembles de points correspondants
-    src_pts = np.float32([ kp1[m.queryIdx].pt for m in good_matches ]).reshape(-1,1,2)
-    dst_pts = np.float32([ kp2[m.trainIdx].pt for m in good_matches ]).reshape(-1,1,2)
+    # Points pour l'homographie
+    src_pts = np.float32([kp1[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+    dst_pts = np.float32([kp2[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
 
-    # 7) Calcul de l'homographie via RANSAC
+    # Calcul de l'homographie
     M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-
     if M is None:
-        print("Impossible de calculer l'homographie.")
         return 0.0
 
-    # 8) Définition des coins de l'image de référence (zombie)
+    # Définir les coins de la bounding box de l'image de référence
     h_ref, w_ref = ref_img.shape
-    ref_corners = np.float32([[0,0], [w_ref,0], [w_ref,h_ref], [0,h_ref]]).reshape(-1,1,2)
+    ref_corners = np.float32([[0, 0], [w_ref, 0], [w_ref, h_ref], [0, h_ref]]).reshape(-1, 1, 2)
 
-    # 9) Projection des coins dans l'image courante
-    projected_corners = cv2.perspectiveTransform(ref_corners, M)  # shape: (4,1,2)
+    # Projeter les coins dans l'image de la scène
+    projected_corners = cv2.perspectiveTransform(ref_corners, M)
+    scene_with_box = scene_img.copy()
+    cv2.polylines(scene_with_box, [np.int32(projected_corners)], True, (0, 255, 0), 2)
+    cv2.imwrite(os.path.join(scene_log_dir, "scene_with_box.jpg"), scene_with_box)
 
-    # 10) Calcul de la bounding box du zombie projeté (approximatif mais simple)
     zombie_x, zombie_y, zombie_w, zombie_h = cv2.boundingRect(projected_corners)
 
-    # 11) Définir la zone centrale de la scene (ex: 50% de largeur/hauteur au centre)
-    h_scene, w_scene = scene_img.shape
-    # Par exemple, on prend 25% de marge à gauche et à droite => zone centrale = 50% du milieu
-    margin_x = 0.25
-    margin_y = 0.25
-    x1 = int(w_scene * margin_x)
-    y1 = int(h_scene * margin_y)
-    x2 = int(w_scene * (1.0 - margin_x))
-    y2 = int(h_scene * (1.0 - margin_y))
+    # Zone centrale de l'image de la scène
+    x1, y1, x2, y2 = 0, 0, 160, 160
 
-    # 12) Bounding box de la zone centrale
-    center_w = x2 - x1
-    center_h = y2 - y1
+    scene_with_center = scene_img.copy()
+    cv2.rectangle(scene_with_center, (x1, y1), (x2, y2), (255, 0, 0), 2)
+    cv2.imwrite(os.path.join(scene_log_dir, "scene_with_center.jpg"), scene_with_center)
 
-    # 13) Calcul de l'intersection entre les deux rectangles
-    # Intersection rect (zombie) vs rect (centre)
+    # Calcul de l'intersection
     inter_x1 = max(x1, zombie_x)
     inter_y1 = max(y1, zombie_y)
     inter_x2 = min(x2, zombie_x + zombie_w)
     inter_y2 = min(y2, zombie_y + zombie_h)
 
-    intersection_area = 0
-    if inter_x2 > inter_x1 and inter_y2 > inter_y1:
-        intersection_area = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
+    intersection_area = max(0, inter_x2 - inter_x1) * max(0, inter_y2 - inter_y1)
 
-    # 14) Aire de la zone centrale
-    center_area = center_w * center_h
+    scene_with_intersection = scene_img.copy()
+    if intersection_area > 0:
+        cv2.rectangle(scene_with_intersection, (inter_x1, inter_y1), (inter_x2, inter_y2), (0, 0, 255), 2)
+    cv2.imwrite(os.path.join(scene_log_dir, "scene_with_intersection.jpg"), scene_with_intersection)
+
+    center_area = (x2 - x1) * (y2 - y1)
     if center_area == 0:
-        print("Zone centrale invalide (aire = 0)")
         return 0.0
 
-    # 15) Pourcentage d'occupation
-    percentage = (intersection_area / center_area) * 100.0
-
-    return percentage
+    return (intersection_area / center_area) * 100.0
 
 def main():
-    # Chemins d'exemple (à adapter)
     ref_path = "/home/mahmoud/Ecole/PX/Z-Shooter/assets/ennemis/aigle/fly1.png"
-    scene_path = "/home/mahmoud/Ecole/PX/Z-Shooter/assets/ennemis/aigle/fly2.png"
+    dossier_scene = "/home/mahmoud/Ecole/PX/StandTir/Scene/images_decoupees" #
 
-    pourcentage = find_zombie_percentage_in_center(ref_path, scene_path)
-    print(f"Pourcentage d'occupation du zombie dans la zone centrale : {pourcentage:.2f} %")
+    fichiers = sorted(
+        [f for f in os.listdir(dossier_scene) if f.endswith(".png")], 
+        key=lambda x: int(os.path.splitext(x)[0])
+    )
+
+    for fichier in fichiers:
+        scene_path = os.path.join(dossier_scene, fichier)
+        pourcentage = find_zombie_percentage_in_center(ref_path, scene_path, log_dir="logs")
+        print(f"Pourcentage de correspondance pour {fichier} : {pourcentage:.2f} %")
 
 if __name__ == '__main__':
     main()
