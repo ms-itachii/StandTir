@@ -1,0 +1,97 @@
+import cv2
+import numpy as np
+from matplotlib import pyplot as plt
+
+
+def template_matching(image_path, template_path):
+    """Correspondance de modèles (Template Matching)"""
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+
+    result = cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)
+    _, _, _, max_loc = cv2.minMaxLoc(result)
+
+    h, w = template.shape
+    top_left = max_loc
+    bottom_right = (top_left[0] + w, top_left[1] + h)
+
+    cv2.rectangle(image, top_left, bottom_right, 255, 2)
+    cv2.imshow("Template Matching", image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+
+def histogram_comparison(image1_path, image2_path):
+    """Comparaison des histogrammes"""
+    image1 = cv2.imread(image1_path)
+    image2 = cv2.imread(image2_path)
+
+    hist1 = cv2.calcHist([image1], [0], None, [256], [0, 256])
+    hist2 = cv2.calcHist([image2], [0], None, [256], [0, 256])
+
+    cv2.normalize(hist1, hist1)
+    cv2.normalize(hist2, hist2)
+
+    similarity = cv2.compareHist(hist1, hist2, cv2.HISTCMP_CORREL)
+    print(f"Similarité des histogrammes : {similarity}")
+
+
+def contour_detection(image_path):
+    """Détection de contours"""
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    _, threshold = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(threshold, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    image_contours = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    cv2.drawContours(image_contours, contours, -1, (0, 255, 0), 2)
+
+    cv2.imshow("Contours détectés", image_contours)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+
+def fourier_transform(image_path):
+    """Transformation de Fourier"""
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    f = np.fft.fft2(image)
+    fshift = np.fft.fftshift(f)
+    magnitude_spectrum = 20 * np.log(np.abs(fshift))
+
+    plt.imshow(magnitude_spectrum, cmap="gray")
+    plt.title("Spectre de Fourier")
+    plt.show()
+
+
+# Menu pour choisir une méthode
+def main():
+    image1_path =image_path = "image.png"
+    image2_path = template_path = "zombie1.png"
+    print("Choisissez une méthode à exécuter :")
+    print("1. Correspondance de modèles (Template Matching)")
+    print("2. Comparaison d'histogrammes")
+    print("3. Détection de contours")
+    print("4. Transformation de Fourier")
+    
+    choice = input("Votre choix (1-4) : ")
+    if choice == "1":
+  
+        template_matching(image_path, template_path)
+        return
+    elif choice == "2":
+        histogram_comparison(image1_path, image2_path)
+        return
+    elif choice == "3":
+        contour_detection(image_path)
+        return
+    elif choice == "4":
+
+        fourier_transform(image_path)
+        return
+    else:
+        print("Choix invalide. Veuillez réessayer.")
+        
+
+
+if __name__ == "__main__":
+    main()
+    
