@@ -1,132 +1,133 @@
 import cv2
 import numpy as np
 
-# Fonction pour détecter les couleurs jaune et orange
+# -------------- 1️⃣ FUNCTION TO CONVERT BGR TO HSV ----------------
+def convert_bgr_to_hsv(bgr_color):
+    color_bgr = np.uint8([[bgr_color]])
+    color_hsv = cv2.cvtColor(color_bgr, cv2.COLOR_BGR2HSV)
+    return color_hsv[0][0]
+
+# -------------- 2️⃣ DEFINE YOUR TWO COLORS (in BGR format) ----------------
+color1_bgr = (29.4, 94.1, 100)     # Example: dark violet-ish
+color2_bgr = (29.4, 94.1, 100)   # Example: white
+
+# Convert them to HSV
+hsv1 = convert_bgr_to_hsv(color1_bgr)
+hsv2 = convert_bgr_to_hsv(color2_bgr)
+
+# -------------- 3️⃣ FUNCTION TO DETECT COLORS BASED ON 2 RANGES ----------------
 def detect_colors(frame):
-    # Convertir l'image en espace de couleur HSV
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-    # Plage de couleurs jaunes (en HSV)
-    lower_yellow = np.array([20, 100, 100])
-    upper_yellow = np.array([30, 255, 255])
-    
-    # Plage de couleurs orange (en HSV)
-    lower_orange = np.array([10, 100, 100])
-    upper_orange = np.array([20, 255, 255])
+    # Define HSV ranges with margin
+    margin = 8
+    hsv_ranges = [
+        ([max(hsv1[0] - margin, 0), 50, 50], [min(hsv1[0] + margin, 179), 255, 255]),
+        ([max(hsv2[0] - margin, 0), 50, 50], [min(hsv2[0] + margin, 179), 255, 255])
+    ]
 
-    # Masques pour détecter le jaune et l'orange
-    mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
-    mask_orange = cv2.inRange(hsv, lower_orange, upper_orange)
+    # Combine masks
+    mask = np.zeros_like(hsv[:, :, 0])
+    for lower, upper in hsv_ranges:
+        lower_bound = np.array(lower, dtype=np.uint8)
+        upper_bound = np.array(upper, dtype=np.uint8)
+        mask_part = cv2.inRange(hsv, lower_bound, upper_bound)
+        mask = cv2.bitwise_or(mask, mask_part)
 
-    # Combiner les deux masques
-    combined_mask = cv2.bitwise_or(mask_yellow, mask_orange)
+    # Optional: clean up mask
+    kernel = np.ones((5, 5), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
-    return combined_mask
+    return mask
 
-# Fonction pour calculer le centre du contour
+# -------------- 4️⃣ FUNCTION TO GET CONTOUR CENTER ----------------
 def get_contour_center(contour):
     moments = cv2.moments(contour)
     if moments["m00"] != 0:
         cx = int(moments["m10"] / moments["m00"])
         cy = int(moments["m01"] / moments["m00"])
         return (cx, cy)
-    else:
-        return None
+    return None
 
-# Fonction pour comparer les contours et retourner un résultat booléen
+# -------------- 5️⃣ FUNCTION TO COMPARE CONTOURS ----------------
 def compare_contours(captured_contour, reference_contour, threshold=0.1):
-    # Effectuer le shape matching entre les deux contours
     shape_match_score = cv2.matchShapes(captured_contour, reference_contour, 1, 0.0)
-    print(f"Score de correspondance de forme : {shape_match_score}")
-    
-    # Si le score de correspondance est inférieur au seuil, considérer que les contours coïncident
-    if shape_match_score < threshold:
-        return True
-    else:
-        return False
+    print(f"Shape Match Score: {shape_match_score}")
+    return shape_match_score < threshold
 
-# Initialiser la capture vidéo de la webcam
-cap = cv2.VideoCapture(0)
+# -------------- 6️⃣ LOAD REFERENCE IMAGE & PROCESS ----------------
+reference_image = cv2.imread("./pato.png")
 
-# Charger l'image de référence pour appliquer le masque
-reference_image = cv2.imread("pato.png")
+if reference_image is None:
+    print("Error: Could not load reference image.")
+    exit()
 
-# Appliquer le masque jaune et orange à l'image de référence
 reference_masked = detect_colors(reference_image)
-
-# Sauvegarder l'image binaire résultante de la référence
 cv2.imwrite("reference_masked_binary.png", reference_masked)
 
-# Trouver les contours dans le masque de référence
 contours_reference, _ = cv2.findContours(reference_masked, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-reference_contour = max(contours_reference, key=cv2.contourArea)  # Contour de référence le plus grand
 
-# Dessiner le contour de la référence sur l'image de référence
+if len(contours_reference) == 0:
+    print("Error: No contours found in reference image.")
+    exit()
+
+reference_contour = max(contours_reference, key=cv2.contourArea)
 reference_image_copy = reference_image.copy()
-cv2.drawContours(reference_image_copy, [reference_contour], -1, (0, 255, 0), 3)  # Vert, épaisseur 3
+cv2.drawContours(reference_image_copy, [reference_contour], -1, (0, 255, 0), 3)
+
+# -------------- 7️⃣ REAL-TIME CAPTURE AND ANALYSIS ----------------
+cap = cv2.VideoCapture(0)
+
+print("Press 'C' to capture and compare.")
+print("Press 'Q' to quit.")
 
 while True:
-    # Lire une image de la webcam
     ret, frame = cap.read()
-    
     if not ret:
-        print("Erreur de capture vidéo")
+        print("Error: Cannot capture video.")
         break
 
-    # Afficher l'image en temps réel
-    cv2.imshow("Image originale", frame)
+    cv2.imshow("Original Image", frame)
 
-    # Attendre que l'utilisateur appuie sur 'C' pour capturer l'image
     key = cv2.waitKey(1) & 0xFF
-    if key == ord('c'):  # Appuyer sur 'C' pour capturer l'image
-        # Effectuer l'analyse sur l'image capturée
-        print("Analyse de l'image capturée...")
+    if key == ord('c'):
+        print("Processing captured image...")
 
-        # Appliquer le masque jaune et orange à l'image capturée
         combined_mask = detect_colors(frame)
-
-        # Trouver les contours dans le masque capturé
         contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        # Si des contours sont trouvés
         if contours:
-            # Trouver le plus grand contour basé sur la superficie
             largest_contour = max(contours, key=cv2.contourArea)
-
-            # Calculer le centre du plus grand contour
             center = get_contour_center(largest_contour)
             if center:
-                print(f"Position du plus grand contour : {center}")
+                print(f"Largest Contour Center: {center}")
 
-            # Dessiner le contour sur l'image capturée
             frame_with_contour = frame.copy()
-            cv2.drawContours(frame_with_contour, [largest_contour], -1, (0, 255, 0), 3)  # Vert, épaisseur 3
+            cv2.drawContours(frame_with_contour, [largest_contour], -1, (0, 255, 0), 3)
 
-            # Redimensionner l'image de la webcam et l'image de référence pour qu'elles aient la même hauteur
+            # Resize for side-by-side comparison
             height = min(frame_with_contour.shape[0], reference_image_copy.shape[0])
             frame_resized = cv2.resize(frame_with_contour, (int(frame_with_contour.shape[1] * height / frame_with_contour.shape[0]), height))
             reference_resized = cv2.resize(reference_image_copy, (int(reference_image_copy.shape[1] * height / reference_image_copy.shape[0]), height))
 
-            # Comparaison entre l'image capturée et l'image de référence
-            comparison_image = np.hstack((frame_resized, reference_resized))  # Superposer les deux images
+            comparison_image = np.hstack((frame_resized, reference_resized))
+            cv2.imshow("Captured vs Reference", comparison_image)
 
-            # Afficher la comparaison entre l'image capturée et la référence
-            cv2.imshow("Comparaison entre l'image capturée et la référence", comparison_image)
-
-            # Comparer les contours
+            # Compare contours
             match_result = compare_contours(largest_contour, reference_contour, threshold=0.5)
             if match_result:
-                print("Les contours coïncident : True")
+                print("Contours Match: ✅ YES")
             else:
-                print("Les contours ne coïncident pas : False")
+                print("Contours Do Not Match: ❌ NO")
+        else:
+            print("No contours detected in captured image.")
 
-        # Afficher le masque combiné pour l'image capturée
-        cv2.imshow("Masque combiné Jaune + Orange", combined_mask)
+        cv2.imshow("Detected Colors Mask", combined_mask)
 
-    # Quitter si la touche 'q' est pressée
     if key == ord('q'):
         break
 
-# Libérer la caméra et fermer les fenêtres
+# -------------- 🔚 CLEANUP ----------------
 cap.release()
 cv2.destroyAllWindows()
