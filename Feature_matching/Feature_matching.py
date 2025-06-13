@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from picamera2 import Picamera2
+from picamera2 import Picamera2, Preview
 import time
 import sys
 
@@ -63,8 +63,16 @@ def main():
     reference_image_copy = reference_image.copy()
     cv2.drawContours(reference_image_copy, [reference_contour], -1, (0, 255, 0), 3)
 
+    # --- CONFIGURATION CAMERA CORRIGÉE ---
     picam2 = Picamera2()
-    picam2.configure(picam2.create_preview_configuration(main={"format": "RGB888", "size": (640, 480)}))
+    config = picam2.create_preview_configuration(main={"format": "RGB888", "size": (640, 480)})
+    picam2.configure(config)
+
+    # Active l'automatisme de l'exposition et de la balance des blancs
+    picam2.set_controls({"AwbMode": 1, "AeEnable": True})
+
+    # Démarrage de la caméra avec aperçu optionnel (supprimable si pas utile)
+    # picam2.start_preview(Preview.QTGL)
     picam2.start()
     time.sleep(2)
 
