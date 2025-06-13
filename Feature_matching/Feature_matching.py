@@ -86,7 +86,7 @@ def main():
         frame_rgb = picam2.capture_array()
         frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
 
-        cv2.imshow("Original Image", frame_bgr)
+        cv2.imshow("Original Image", frame_rgb)
 
         key = cv2.waitKey(1) & 0xFF
         if key == ord('c'):
