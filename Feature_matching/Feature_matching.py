@@ -74,6 +74,7 @@ def main():
         "AeEnable": True
     })
 
+
     # Optionnel : aperçu direct, utile pour vérifier les couleurs
     # picam2.start_preview(Preview.QTGL)
 
