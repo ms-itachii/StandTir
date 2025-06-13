@@ -1,119 +1,70 @@
 import cv2
-import numpy as np
+from picamera2 import Picamera2
 import time
-import sys
-from picamera.array import PiRGBArray
-from picamera import PiCamera
-
-def convert_bgr_to_hsv(bgr_color):
-    color_bgr = np.uint8([[bgr_color]])
-    color_hsv = cv2.cvtColor(color_bgr, cv2.COLOR_BGR2HSV)
-    return color_hsv[0][0]
-
-def detect_colors(frame, hsv1, hsv2):
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    margin = 8
-    hsv_ranges = [
-        ([max(hsv1[0] - margin, 0), 50, 50], [min(hsv1[0] + margin, 179), 255, 255]),
-        ([max(hsv2[0] - margin, 0), 50, 50], [min(hsv2[0] + margin, 179), 255, 255])
-    ]
-    mask = np.zeros_like(hsv[:, :, 0])
-    for lower, upper in hsv_ranges:
-        lower_bound = np.array(lower, dtype=np.uint8)
-        upper_bound = np.array(upper, dtype=np.uint8)
-        mask_part = cv2.inRange(hsv, lower_bound, upper_bound)
-        mask = cv2.bitwise_or(mask, mask_part)
-    kernel = np.ones((5, 5), np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    return mask
-
-def get_contour_center(contour):
-    moments = cv2.moments(contour)
-    if moments["m00"] != 0:
-        cx = int(moments["m10"] / moments["m00"])
-        cy = int(moments["m01"] / moments["m00"])
-        return (cx, cy)
-    return None
-
-def compare_contours(captured_contour, reference_contour, threshold=0.1):
-    shape_match_score = cv2.matchShapes(captured_contour, reference_contour, 1, 0.0)
-    print(f"Shape Match Score: {shape_match_score}")
-    return shape_match_score < threshold
 
 def main():
-    color1_bgr = (29.4, 94.1, 100)
-    color2_bgr = (29.4, 94.1, 100)
-    hsv1 = convert_bgr_to_hsv(color1_bgr)
-    hsv2 = convert_bgr_to_hsv(color2_bgr)
+    # Initialisation de la caméra
+    picam2 = Picamera2()
+    config = picam2.create_still_configuration(main={"format": "RGB888", "size": (640, 480)})
+    picam2.configure(config)
 
-    reference_image = cv2.imread("./pato.png")
-    if reference_image is None:
-        print("Error: Could not load reference image.")
-        sys.exit(1)
+    # Départ en mode balance des blancs manuelle
+    gain_r = 1.5
+    gain_b = 1.5
 
-    reference_masked = detect_colors(reference_image, hsv1, hsv2)
-    cv2.imwrite("reference_masked_binary.png", reference_masked)
+    picam2.set_controls({
+        "AwbMode": 0,  # Mode manuel
+        "ColourGains": (gain_r, gain_b),
+        "AeEnable": True
+    })
 
-    contours_reference, _ = cv2.findContours(reference_masked, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if len(contours_reference) == 0:
-        print("Error: No contours found in reference image.")
-        sys.exit(1)
+    picam2.start()
+    time.sleep(3)
 
-    reference_contour = max(contours_reference, key=cv2.contourArea)
-    reference_image_copy = reference_image.copy()
-    cv2.drawContours(reference_image_copy, [reference_contour], -1, (0, 255, 0), 3)
+    print("Calibration de la balance des blancs :")
+    print("Utilise les touches pour ajuster :")
+    print("  Z / S : augmenter / diminuer le gain Rouge")
+    print("  E / D : augmenter / diminuer le gain Bleu")
+    print("  Q : quitter et sauvegarder")
 
-    # ----------- Initialisation caméra avec picamera ------------
-    camera = PiCamera()
-    camera.resolution = (640, 480)
-    camera.framerate = 30
-    camera.awb_mode = 'auto'  # balance des blancs auto
-    camera.exposure_mode = 'auto'
-    raw_capture = PiRGBArray(camera, size=(640, 480))
-    time.sleep(2)  # attendre que l'exposition se stabilise
-    # ------------------------------------------------------------
+    while True:
+        frame_rgb = picam2.capture_array()
+        frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+        info = f"Gain Rouge: {gain_r:.2f} | Gain Bleu: {gain_b:.2f}"
+        cv2.putText(frame_bgr, info, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-    print("Press 'C' to capture and compare.")
-    print("Press 'Q' to quit.")
-
-    for frame in camera.capture_continuous(raw_capture, format="bgr", use_video_port=True):
-        image = frame.array
-        cv2.imshow("Original Image", image)
-
+        cv2.imshow("Calibration AWB", frame_bgr)
         key = cv2.waitKey(1) & 0xFF
-        if key == ord('c'):
-            print("Processing captured image...")
-            combined_mask = detect_colors(image, hsv1, hsv2)
-            contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            if contours:
-                largest_contour = max(contours, key=cv2.contourArea)
-                center = get_contour_center(largest_contour)
-                if center:
-                    print(f"Largest Contour Center: {center}")
-                image_with_contour = image.copy()
-                cv2.drawContours(image_with_contour, [largest_contour], -1, (0, 255, 0), 3)
-                height = min(image_with_contour.shape[0], reference_image_copy.shape[0])
-                image_resized = cv2.resize(image_with_contour, (int(image_with_contour.shape[1] * height / image_with_contour.shape[0]), height))
-                reference_resized = cv2.resize(reference_image_copy, (int(reference_image_copy.shape[1] * height / reference_image_copy.shape[0]), height))
-                comparison_image = np.hstack((image_resized, reference_resized))
-                cv2.imshow("Captured vs Reference", comparison_image)
-                match_result = compare_contours(largest_contour, reference_contour, threshold=0.5)
-                if match_result:
-                    print("Contours Match: ✅ YES")
-                else:
-                    print("Contours Do Not Match: ❌ NO")
-            else:
-                print("No contours detected in captured image.")
-            cv2.imshow("Detected Colors Mask", combined_mask)
 
-        raw_capture.truncate(0)
+        updated = False
+        step = 0.05  # ajustement fin
 
-        if key == ord('q'):
+        if key == ord('z'):  # Augmenter R
+            gain_r += step
+            updated = True
+        elif key == ord('s'):  # Diminuer R
+            gain_r = max(0.1, gain_r - step)
+            updated = True
+        elif key == ord('e'):  # Augmenter B
+            gain_b += step
+            updated = True
+        elif key == ord('d'):  # Diminuer B
+            gain_b = max(0.1, gain_b - step)
+            updated = True
+        elif key == ord('q'):  # Quitter
             break
 
+        if updated:
+            print(f"Nouvelle configuration : gain_r = {gain_r:.2f}, gain_b = {gain_b:.2f}")
+            picam2.set_controls({
+                "ColourGains": (gain_r, gain_b)
+            })
+
     cv2.destroyAllWindows()
-    camera.close()
+    picam2.stop()
+
+    print("Calibration terminée.")
+    print(f"➡️  Gains finaux à utiliser dans ton code : ColourGains = ({gain_r:.2f}, {gain_b:.2f})")
 
 if __name__ == "__main__":
     main()
