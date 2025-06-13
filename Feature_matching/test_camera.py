@@ -11,10 +11,12 @@ def main():
     # Départ en mode balance des blancs manuelle
     gain_r = 1.5
     gain_b = 1.5
+    gain_g = 1.5
+    
 
     picam2.set_controls({
         "AwbMode": 0,  # Mode manuel
-        "ColourGains": (gain_r, gain_b),
+        "ColourGains": (gain_r, gain_g, gain_b),
         "AeEnable": True
     })
 
@@ -30,7 +32,7 @@ def main():
     while True:
         frame_rgb = picam2.capture_array()
         frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-        info = f"Gain Rouge: {gain_r:.2f} | Gain Bleu: {gain_b:.2f}"
+        info = f"Gain Rouge: {gain_r:.2f} | Gain Bleu: {gain_b:.2f} | Gain Vert: {gain_g:.2f}"
         cv2.putText(frame_bgr, info, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
         cv2.imshow("Calibration AWB", frame_bgr)
@@ -51,13 +53,19 @@ def main():
         elif key == ord('d'):  # Diminuer B
             gain_b = max(0.1, gain_b - step)
             updated = True
+        elif key == ord('r'):  # Augmenter B
+            gain_g += step
+            updated = True
+        elif key == ord('f'):  # Diminuer B
+            gain_g = max(0.1, gain_g - step)
+            updated = True
         elif key == ord('q'):  # Quitter
             break
 
         if updated:
-            print(f"Nouvelle configuration : gain_r = {gain_r:.2f}, gain_b = {gain_b:.2f}")
+            print(f"Nouvelle configuration : gain_r = {gain_r:.2f}, gain_b = {gain_b:.2f}, gain_g = {gain_g:.2f}")
             picam2.set_controls({
-                "ColourGains": (gain_r, gain_b)
+                "ColourGains": (gain_r,gain_g, gain_b)
             })
 
     cv2.destroyAllWindows()
