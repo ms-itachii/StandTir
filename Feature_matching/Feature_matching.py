@@ -41,7 +41,7 @@ def compare_contours(captured_contour, reference_contour, threshold=0.1):
     return shape_match_score < threshold
 
 def main():
-    color1_bgr = (200, 224, 190)
+    color1_bgr = (29, 94, 100)
     color2_bgr = (220, 224, 100)
     hsv1 = convert_bgr_to_hsv(color1_bgr)
     hsv2 = convert_bgr_to_hsv(color2_bgr)
