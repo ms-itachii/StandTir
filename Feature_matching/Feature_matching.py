@@ -41,7 +41,7 @@ def compare_contours(captured_contour, reference_contour, threshold=0.1):
     return shape_match_score < threshold
 
 def main():
-    color1_bgr = (29, 94, 100)
+    color1_bgr = (200, 224, 190)
     color2_bgr = (220, 224, 100)
     hsv1 = convert_bgr_to_hsv(color1_bgr)
     hsv2 = convert_bgr_to_hsv(color2_bgr)
@@ -63,31 +63,29 @@ def main():
     reference_image_copy = reference_image.copy()
     cv2.drawContours(reference_image_copy, [reference_contour], -1, (0, 255, 0), 3)
 
-    # ---------- CONFIGURATION CAMERA CORRIGÉE ----------
+    # ---------- CONFIGURATION CAMERA ----------
     picam2 = Picamera2()
     config = picam2.create_still_configuration(main={"format": "RGB888", "size": (640, 480)})
     picam2.configure(config)
 
-    # Active AWB (balance des blancs auto) et AE (exposition auto)
+    # Balance des blancs automatique pour l'instant
     picam2.set_controls({
         "AwbMode": 1,
         "AeEnable": True
     })
 
-
-    # Optionnel : aperçu direct, utile pour vérifier les couleurs
-    # picam2.start_preview(Preview.QTGL)
-
     picam2.start()
-    time.sleep(2)  # Donne le temps à l'exposition et balance des blancs de s'ajuster
+    time.sleep(2)  # Laisse le temps à l’AWB et AE de se stabiliser
     # -----------------------------------------------------
 
     print("Press 'C' to capture and compare.")
     print("Press 'Q' to quit.")
 
     while True:
-        frame = picam2.capture_array()
-        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        # Capture image RGB, puis convertit en BGR pour affichage et traitement
+        frame_rgb = picam2.capture_array()
+        frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+
         cv2.imshow("Original Image", frame_bgr)
 
         key = cv2.waitKey(1) & 0xFF
@@ -115,6 +113,7 @@ def main():
             else:
                 print("No contours detected in captured image.")
             cv2.imshow("Detected Colors Mask", combined_mask)
+
         if key == ord('q'):
             break
 
