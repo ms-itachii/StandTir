@@ -112,7 +112,7 @@ def main():
                     print("Contours Do Not Match: ❌ NO")
             else:
                 print("No contours detected in captured image.")
-            cv2.imshow("Detected Colors Mask", combined_mask)
+            # cv2.imshow("Detected Colors Mask", combined_mask)
 
         if key == ord('q'):
             break
